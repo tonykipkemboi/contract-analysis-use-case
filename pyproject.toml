@@ -7,6 +7,7 @@ requires-python = ">=3.10,<=3.13"
 dependencies = [
     "crewai[tools]==0.100.1",
     "qdrant-client[fastembed]>=1.13.2",
+    "transformers>=4.46.3",
 ]
 
 [project.scripts]

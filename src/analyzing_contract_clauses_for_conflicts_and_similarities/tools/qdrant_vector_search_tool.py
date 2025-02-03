@@ -5,7 +5,6 @@ from typing import Any, Optional, Type
 try:
     from qdrant_client import QdrantClient
     from qdrant_client.http.models import Filter, FieldCondition, MatchValue
-    from qdrant_client.http.models import Distance, VectorParams
 
     QDRANT_AVAILABLE = True
 except ImportError:
