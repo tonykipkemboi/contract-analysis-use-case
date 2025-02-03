@@ -4,21 +4,29 @@ from docling.chunking import HybridChunker
 from docling.datamodel.base_models import InputFormat
 from docling.document_converter import DocumentConverter
 from dotenv import load_dotenv
+import openai
+from qdrant_client.models import VectorParams, Distance
+from qdrant_client.models import PointStruct
+import uuid
 
 load_dotenv()
 # Setup Qdrant client
-COLLECTION_NAME = "contracts_business_2"
+COLLECTION_NAME = "contracts_business_5"
 doc_converter = DocumentConverter(allowed_formats=[InputFormat.PDF])  # Allow PDF format
 qdrant_url = os.getenv("QDRANT_URL")
 qdrant_api_key = os.getenv("QDRANT_API_KEY")
-
+openai_client = openai.Client(
+    api_key=os.getenv("OPENAI_API_KEY"),
+)
 client = QdrantClient(url=qdrant_url, api_key=qdrant_api_key)
-client.set_model("sentence-transformers/all-MiniLM-L6-v2")
-# client.set_sparse_model("Qdrant/bm25")
+# client.set_model("sentence-transformers/all-MiniLM-L6-v2")
+embedding_model = "text-embedding-3-small"
+
 # Define the folder where PDFs are stored
 pdf_folder = "knowledge/contracts/"
 # Initialize documents and metadata lists
 documents, metadatas = [], []
+points = []
 # Loop through all PDFs in the folder and process them
 for filename in os.listdir(pdf_folder):
     if filename.endswith(".pdf"):
@@ -30,19 +38,39 @@ for filename in os.listdir(pdf_folder):
         # Chunk the converted document
         for chunk in HybridChunker().chunk(result.document):
             print("chunk", chunk)
+            embedding_result = openai_client.embeddings.create(
+                input=chunk.text, model=embedding_model
+            )
+            vector = embedding_result.data[0].embedding
             documents.append(chunk.text)
             metadatas.append(chunk.meta.export_json_dict())
-# Upload the documents to Qdrant
-_ = client.add(
+            point_id = str(uuid.uuid4())
+            points.append(
+                PointStruct(
+                    id=point_id,
+                    vector=vector,
+                    payload={
+                        "text": chunk.text,
+                        "metadata": chunk.meta.export_json_dict(),
+                    },
+                )
+            )
+print("points", points)
+client.create_collection(
     collection_name=COLLECTION_NAME,
-    documents=documents,
-    metadata=metadatas,
-    batch_size=64,
+    vectors_config=VectorParams(size=1536, distance=Distance.COSINE),
 )
+client.upsert(collection_name=COLLECTION_NAME, points=points)
+
 # Retrieve and print results from Qdrant
-points = client.query(
+points = client.search(
     collection_name=COLLECTION_NAME,
-    query_text="What is the grants to rights of digital cinema destinations corp?",
+    query_vector=openai_client.embeddings.create(
+        input=["What is the best to use for vector search scaling?"],
+        model=embedding_model,
+    )
+    .data[0]
+    .embedding,
     limit=10,
 )
 

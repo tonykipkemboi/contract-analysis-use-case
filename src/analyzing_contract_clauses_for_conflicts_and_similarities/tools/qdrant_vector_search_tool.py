@@ -2,6 +2,7 @@ import json
 import os
 from typing import Any, Optional, Type
 
+
 try:
     from qdrant_client import QdrantClient
     from qdrant_client.http.models import Filter, FieldCondition, MatchValue
@@ -65,7 +66,6 @@ class QdrantVectorSearchTool(BaseTool):
                 url=self.qdrant_url,
                 api_key=self.qdrant_api_key,
             )
-            self.client.set_model("sentence-transformers/all-MiniLM-L6-v2")
 
     def _run(
         self,
@@ -92,9 +92,10 @@ class QdrantVectorSearchTool(BaseTool):
             )
 
         # Search in Qdrant using the built-in query method
-        search_results = self.client.query(
+        query_vector = self.vectorize_query(query)
+        search_results = self.client.query_points(
             collection_name=self.collection_name,
-            query_text=[query],
+            query=query_vector,
             query_filter=search_filter,
             limit=self.limit,
             score_threshold=self.score_threshold,
@@ -102,21 +103,35 @@ class QdrantVectorSearchTool(BaseTool):
 
         # Format results similar to storage implementation
         results = []
+        # Extract the list of ScoredPoint objects from the tuple
         for point in search_results:
             result = {
-                "id": point.id,
-                "metadata": point.metadata,
-                "context": point.document,
-                "score": point.score,
+                "metadata": point[1][0].payload.get("metadata", {}),
+                "context": point[1][0].payload.get("text", ""),
+                "distance": point[1][0].score,
             }
             results.append(result)
 
         return json.dumps(results, indent=2)
 
+    def vectorize_query(self, query: str) -> list[float]:
+        import openai
+
+        client = openai.Client(api_key=os.getenv("OPENAI_API_KEY"))
+        embedding = (
+            client.embeddings.create(
+                input=[query],
+                model="text-embedding-3-small",
+            )
+            .data[0]
+            .embedding
+        )
+        return embedding
+
 
 # if __name__ == "__main__":
 #     tool = QdrantVectorSearchTool(
-#         collection_name="contracts_business_2",
+#         collection_name="contracts_business_5",
 #         qdrant_url=os.getenv("QDRANT_URL"),
 #         qdrant_api_key=os.getenv("QDRANT_API_KEY"),
 #     )
