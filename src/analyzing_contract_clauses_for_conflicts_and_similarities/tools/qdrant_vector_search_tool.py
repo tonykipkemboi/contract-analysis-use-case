@@ -1,6 +1,7 @@
 import json
 import os
 from typing import Any, Optional, Type
+import boto3
 
 
 try:
@@ -41,6 +42,7 @@ class QdrantVectorSearchTool(BaseTool):
 
     model_config = {"arbitrary_types_allowed": True}
     client: QdrantClient = None
+    bedrock: Any = None  # Add bedrock client field
     name: str = "QdrantVectorSearchTool"
     description: str = "A tool to search the Qdrant database for relevant information on internal documents."
     args_schema: Type[BaseModel] = QdrantToolSchema
@@ -65,6 +67,13 @@ class QdrantVectorSearchTool(BaseTool):
             self.client = QdrantClient(
                 url=self.qdrant_url,
                 api_key=self.qdrant_api_key,
+            )
+            # Initialize Bedrock client
+            self.bedrock = boto3.client(
+                service_name="bedrock-runtime",
+                region_name=os.getenv("AWS_REGION_NAME"),
+                aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
+                aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
             )
 
     def _run(
@@ -115,17 +124,24 @@ class QdrantVectorSearchTool(BaseTool):
         return json.dumps(results, indent=2)
 
     def vectorize_query(self, query: str) -> list[float]:
-        import openai
+        """Generate embeddings using AWS Bedrock's Titan model."""
+        import json
 
-        client = openai.Client(api_key=os.getenv("OPENAI_API_KEY"))
-        embedding = (
-            client.embeddings.create(
-                input=[query],
-                model="text-embedding-3-small",
-            )
-            .data[0]
-            .embedding
+        # Prepare the request body
+        request_body = {
+            "inputText": query
+        }
+
+        # Call Bedrock's embedding endpoint
+        response = self.bedrock.invoke_model(
+            modelId="amazon.titan-embed-g1-text-02",
+            body=json.dumps(request_body)
         )
+        
+        # Parse the response
+        response_body = json.loads(response.get('body').read())
+        embedding = response_body.get('embedding')
+        
         return embedding
 
 
